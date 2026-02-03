@@ -84,34 +84,118 @@ const extractAadhaarNumber = (text) => {
 
 /**
  * Extract name from Aadhaar text
+ * Enhanced to handle OCR noise and Aadhaar card formats
  */
 const extractName = (text) => {
-  const lines = text.split('\n').map(l => l.trim()).filter(l => l);
+  if (!text) return null;
   
-  // Look for name patterns
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 2);
+  
+  // Words that should NOT be part of a name
+  const excludeWords = [
+    'male', 'female', 'other', 'government', 'india', 'uidai', 'aadhaar',
+    'unique', 'identification', 'authority', 'dob', 'date', 'birth', 'year',
+    'yob', 'address', 'vid', 'uid', 'help', 'download', 'mera', 'helpline',
+    'enrolment', 'enrollment', 'of', 'the', 'to'
+  ];
+  
+  // Common OCR garbage patterns
+  const isGarbage = (word) => {
+    if (!word || word.length < 2) return true;
+    // Single/double letter noise like "Fn", "Yd"
+    if (word.length <= 2 && !/^[A-Z][a-z]$/.test(word)) return true;
+    // Repeated characters like "eee", "lll"
+    if (/(.)\1{2,}/.test(word)) return true;
+    // No vowels (likely garbage)
+    if (word.length > 2 && !/[aeiouAEIOU]/.test(word)) return true;
+    // Is excluded word
+    if (excludeWords.includes(word.toLowerCase())) return true;
+    return false;
+  };
+  
+  // Clean and validate a potential name
+  const cleanAndValidateName = (rawName) => {
+    if (!rawName) return null;
+    
+    // Remove non-alphabetic characters and split into words
+    const words = rawName
+      .replace(/[^a-zA-Z\s]/g, ' ')
+      .split(/\s+/)
+      .filter(w => !isGarbage(w) && w.length >= 2);
+    
+    // Need at least 2 valid words for a name
+    if (words.length < 2) return null;
+    
+    // Capitalize properly
+    const formatted = words
+      .map(w => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(' ');
+    
+    // Final validation
+    if (formatted.length < 5 || formatted.length > 50) return null;
+    
+    return formatted;
+  };
+  
+  // Priority 1: Find name on line BEFORE "Date of Birth" or "DOB" line
+  for (let i = 0; i < lines.length; i++) {
+    const nextLine = lines[i + 1] || '';
+    
+    // If next line contains DOB pattern, current line is likely the name
+    if (/(?:Date\s*of\s*Birth|DOB|D\.O\.B)[\/:\s]*\d{2}[\/\-]\d{2}[\/\-]\d{4}/i.test(nextLine) ||
+        /(?:DOB|D\.O\.B)[:\s]*\d{2}[\/\-]\d{2}[\/\-]\d{4}/i.test(nextLine)) {
+      const line = lines[i];
+      // Skip if line has numbers or is clearly not a name
+      if (!/\d/.test(line) && !/(?:government|india|aadhaar|female|male)/i.test(line)) {
+        const name = cleanAndValidateName(line);
+        if (name) return name;
+      }
+    }
+  }
+  
+  // Priority 2: Find name on same line as DOB (before the DOB text)
+  const sameLine = text.match(/([A-Za-z][A-Za-z\s]{3,40}?)\s*(?:Date\s*of\s*Birth|DOB)[\/:\s]*\d{2}/i);
+  if (sameLine) {
+    const name = cleanAndValidateName(sameLine[1]);
+    if (name) return name;
+  }
+  
+  // Priority 3: Look for explicit name labels
   const namePatterns = [
-    /(?:name|नाम)\s*[:\-]?\s*([A-Za-z\s]+)/i,
-    /^([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})$/m
+    /(?:name|नाम)\s*[:\-]?\s*([A-Za-z][A-Za-z\s]{3,40})/i,
+    /(?:To|TO)\s*[,:]?\s*([A-Za-z][A-Za-z\s]{3,40})/i,
   ];
   
   for (const pattern of namePatterns) {
     const match = text.match(pattern);
     if (match && match[1]) {
-      const name = match[1].trim();
-      if (name.length > 3 && name.length < 50) {
-        return name;
+      const name = cleanAndValidateName(match[1]);
+      if (name) return name;
+    }
+  }
+  
+  // Priority 4: Find line that looks like a proper name (2-4 capitalized words)
+  for (const line of lines) {
+    // Skip lines with numbers or common non-name text
+    if (/\d/.test(line)) continue;
+    if (/(?:government|india|aadhaar|uidai|female|male|dob|birth|address|unique)/i.test(line)) continue;
+    
+    // Check if line has 2-4 words that look like names
+    const words = line.replace(/[^a-zA-Z\s]/g, '').trim().split(/\s+/);
+    if (words.length >= 2 && words.length <= 4) {
+      const allValidWords = words.every(w => !isGarbage(w));
+      if (allValidWords) {
+        const name = cleanAndValidateName(line);
+        if (name) return name;
       }
     }
   }
   
-  // Try to find name by looking for lines with only letters
-  for (const line of lines) {
-    if (/^[A-Za-z\s]+$/.test(line) && line.length > 3 && line.length < 50) {
-      const words = line.split(/\s+/);
-      if (words.length >= 2 && words.length <= 5) {
-        return line;
-      }
-    }
+  // Priority 5: Look for capitalized word sequences
+  const capsMatch = text.match(/\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+){1,3})\b/);
+  if (capsMatch) {
+    const name = cleanAndValidateName(capsMatch[1]);
+    if (name) return name;
   }
   
   return null;

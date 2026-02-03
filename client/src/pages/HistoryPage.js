@@ -3,7 +3,7 @@
  * Shows all verification history with filtering and pagination
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { motion } from 'framer-motion';
 import { 
   FiClock, 
@@ -37,11 +37,7 @@ const HistoryPage = () => {
   const [selectedDoc, setSelectedDoc] = useState(null);
   const [detailsLoading, setDetailsLoading] = useState(false);
 
-  useEffect(() => {
-    fetchHistory();
-  }, [pagination.currentPage, filters]);
-
-  const fetchHistory = async () => {
+  const fetchHistory = useCallback(async () => {
     setLoading(true);
     try {
       const params = {
@@ -66,7 +62,11 @@ const HistoryPage = () => {
     } finally {
       setLoading(false);
     }
-  };
+  }, [pagination.currentPage, filters]);
+
+  useEffect(() => {
+    fetchHistory();
+  }, [fetchHistory]);
 
   const handleFilterChange = (key, value) => {
     setFilters(prev => ({ ...prev, [key]: value }));
@@ -407,15 +407,5 @@ const CheckRow = ({ label, checked }) => (
     <span className="text-gray-600">{label}</span>
   </div>
 );
-
-const formatDate = (dateString) => {
-  return new Date(dateString).toLocaleDateString('en-IN', {
-    day: '2-digit',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit'
-  });
-};
 
 export default HistoryPage;

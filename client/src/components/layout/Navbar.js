@@ -11,7 +11,6 @@ import {
   FiFileText, 
   FiCreditCard, 
   FiClock, 
-  FiUser, 
   FiLogOut, 
   FiMenu, 
   FiX,

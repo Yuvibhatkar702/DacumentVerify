@@ -8,10 +8,10 @@ import { motion } from 'framer-motion';
 
 const ScanningAnimation = ({ text = 'Scanning document...' }) => {
   return (
-    <div className="relative w-full max-w-md mx-auto">
+    <div className="relative w-full max-w-md mx-auto bg-white rounded-xl p-4">
       {/* Document frame */}
       <motion.div
-        className="relative bg-white rounded-xl shadow-lg overflow-hidden aspect-[3/4] border-2 border-gray-200"
+        className="relative bg-gray-50 rounded-xl shadow-lg overflow-hidden aspect-[3/4] border-2 border-gray-200"
         initial={{ opacity: 0, scale: 0.9 }}
         animate={{ opacity: 1, scale: 1 }}
       >

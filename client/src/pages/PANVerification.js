@@ -160,7 +160,7 @@ const PANVerification = () => {
                   initial={{ opacity: 0 }}
                   animate={{ opacity: 1 }}
                   exit={{ opacity: 0 }}
-                  className="py-8"
+                  className="py-8 bg-white relative z-10"
                 >
                   <ScanningAnimation text="Verifying PAN card..." />
                 </motion.div>

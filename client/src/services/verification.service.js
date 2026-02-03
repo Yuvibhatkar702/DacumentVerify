@@ -101,7 +101,7 @@ export const getRecent = async (limit = 5) => {
   return response.data;
 };
 
-export default {
+const verificationService = {
   verifyAadhaar,
   verifyPAN,
   getVerificationById,
@@ -110,3 +110,5 @@ export default {
   getStats,
   getRecent
 };
+
+export default verificationService;
