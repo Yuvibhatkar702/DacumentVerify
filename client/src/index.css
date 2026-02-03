@@ -1,0 +1,153 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* Custom base styles */
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+  
+  body {
+    @apply font-sans antialiased text-gray-900 bg-gray-50;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    @apply font-display font-semibold;
+  }
+}
+
+/* Custom component classes */
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center px-4 py-2 border border-transparent rounded-lg font-medium transition-all duration-200 focus:outline-none focus:ring-2 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  
+  .btn-primary {
+    @apply btn bg-government-blue text-white hover:bg-government-darkBlue focus:ring-government-blue;
+  }
+  
+  .btn-secondary {
+    @apply btn bg-white text-government-blue border-government-blue hover:bg-gray-50 focus:ring-government-blue;
+  }
+  
+  .btn-success {
+    @apply btn bg-status-verified text-white hover:bg-green-600 focus:ring-green-500;
+  }
+  
+  .btn-danger {
+    @apply btn bg-status-rejected text-white hover:bg-red-600 focus:ring-red-500;
+  }
+  
+  .card {
+    @apply bg-white rounded-xl shadow-card p-6 transition-shadow duration-300 hover:shadow-card-hover;
+  }
+  
+  .input {
+    @apply w-full px-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-government-blue focus:border-government-blue transition-all duration-200 outline-none;
+  }
+  
+  .input-error {
+    @apply input border-red-500 focus:ring-red-500 focus:border-red-500;
+  }
+  
+  .label {
+    @apply block text-sm font-medium text-gray-700 mb-1;
+  }
+  
+  .link {
+    @apply text-government-blue hover:text-government-lightBlue underline transition-colors duration-200;
+  }
+  
+  /* Status badges */
+  .badge {
+    @apply inline-flex items-center px-3 py-1 rounded-full text-sm font-medium;
+  }
+  
+  .badge-verified {
+    @apply badge bg-green-100 text-green-800;
+  }
+  
+  .badge-suspicious {
+    @apply badge bg-yellow-100 text-yellow-800;
+  }
+  
+  .badge-rejected {
+    @apply badge bg-red-100 text-red-800;
+  }
+  
+  .badge-pending {
+    @apply badge bg-gray-100 text-gray-800;
+  }
+  
+  /* Page container */
+  .page-container {
+    @apply max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8;
+  }
+  
+  /* Section styles */
+  .section-title {
+    @apply text-2xl font-bold text-gray-900 mb-6;
+  }
+  
+  .section-subtitle {
+    @apply text-lg text-gray-600 mb-4;
+  }
+}
+
+/* Custom utility classes */
+@layer utilities {
+  .text-gradient {
+    @apply bg-clip-text text-transparent bg-gradient-to-r from-government-blue to-government-lightBlue;
+  }
+  
+  .bg-gradient-government {
+    @apply bg-gradient-to-r from-government-blue to-government-lightBlue;
+  }
+  
+  .bg-pattern {
+    background-image: url("data:image/svg+xml,%3Csvg width='60' height='60' viewBox='0 0 60 60' xmlns='http://www.w3.org/2000/svg'%3E%3Cg fill='none' fill-rule='evenodd'%3E%3Cg fill='%23003366' fill-opacity='0.05'%3E%3Cpath d='M36 34v-4h-2v4h-4v2h4v4h2v-4h4v-2h-4zm0-30V0h-2v4h-4v2h4v4h2V6h4V4h-4zM6 34v-4H4v4H0v2h4v4h2v-4h4v-2H6zM6 4V0H4v4H0v2h4v4h2V6h4V4H6z'/%3E%3C/g%3E%3C/g%3E%3C/svg%3E");
+  }
+}
+
+/* Scanning animation */
+.scanning-line {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, transparent, #003366, transparent);
+  animation: scan 2s ease-in-out infinite;
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #a1a1a1;
+}
+
+/* Focus visible styles */
+*:focus-visible {
+  @apply outline-none ring-2 ring-government-blue ring-offset-2;
+}
+
+/* Print styles */
+@media print {
+  .no-print {
+    display: none !important;
+  }
+}
