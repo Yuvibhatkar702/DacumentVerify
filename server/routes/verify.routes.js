@@ -8,6 +8,7 @@ const router = express.Router();
 const {
   verifyAadhaarCard,
   verifyPANCard,
+  verifyDocument,
   getVerificationById,
   deleteVerification
 } = require('../controllers/verify.controller');
@@ -32,6 +33,13 @@ router.post('/pan',
   handleUploadError, 
   requireFile, 
   verifyPANCard
+);
+
+// Unified document verification (accepts file field name as file or document)
+router.post('/document',
+  upload.any(),
+  handleUploadError,
+  verifyDocument
 );
 
 // Get verification by ID

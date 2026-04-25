@@ -6,6 +6,116 @@
 const { extractText, cleanText } = require('./ocr.util');
 const { scanQRCode, parseAadhaarQRData } = require('./qrScanner.util');
 
+const normalizeValue = (value) => value ? String(value).replace(/\s+/g, ' ').trim() : null;
+
+const normalizeDate = (value) => {
+  if (!value) return null;
+  const clean = value.replace(/[.]/g, '/').replace(/-/g, '/').trim();
+  const match = clean.match(/\b(\d{2})\/(\d{2})\/(\d{4})\b/);
+  if (match) {
+    return `${match[1]}/${match[2]}/${match[3]}`;
+  }
+  return clean;
+};
+
+const normalizeGenderValue = (value) => {
+  if (!value) return null;
+  const upper = value.toUpperCase();
+  if (upper === 'M' || upper.includes('MALE')) return 'Male';
+  if (upper === 'F' || upper.includes('FEMALE')) return 'Female';
+  if (upper.includes('OTHER')) return 'Other';
+  return normalizeValue(value);
+};
+
+const formatAadhaar = (value) => {
+  const digits = value ? value.replace(/\D/g, '') : '';
+  if (digits.length !== 12) return null;
+  return digits;
+};
+
+const parseAadhaarQRXML = (xmlString) => {
+  const getTag = (tag) => {
+    const regex = new RegExp(`<${tag}>([^<]+)</${tag}>`, 'i');
+    const match = xmlString.match(regex);
+    return match ? normalizeValue(match[1]) : null;
+  };
+
+  const getAttr = (attr) => {
+    const regex = new RegExp(`${attr}="([^"]+)"`, 'i');
+    const match = xmlString.match(regex);
+    return match ? normalizeValue(match[1]) : null;
+  };
+
+  const getValue = (tag, attr = tag) => getTag(tag) || getAttr(attr);
+
+  const address = getValue('Address', 'address') || [
+    getValue('House', 'house'),
+    getValue('Street', 'street'),
+    getValue('Lm', 'lm'),
+    getValue('Loc', 'loc'),
+    getValue('Vtc', 'vtc'),
+    getValue('Dist', 'dist'),
+    getValue('State', 'state'),
+    getValue('Pc', 'pc')
+  ].filter(Boolean).join(', ');
+
+  return {
+    aadhaarNumber: formatAadhaar(getValue('Uid', 'uid')),
+    name: normalizeValue(getValue('Name', 'name')),
+    dateOfBirth: normalizeDate(getValue('Dob', 'dob') || getValue('Yob', 'yob')),
+    gender: normalizeGenderValue(getValue('Gender', 'gender')),
+    address: normalizeValue(address)
+  };
+};
+
+const compareQrAndOcr = (qrData, ocrData) => {
+  const fields = ['aadhaarNumber', 'name', 'dateOfBirth', 'gender', 'address'];
+  const mismatches = [];
+  let matchedFields = 0;
+  let comparableFields = 0;
+
+  for (const field of fields) {
+    const qrValue = normalizeValue(qrData?.[field]);
+    const ocrValue = normalizeValue(ocrData?.[field]);
+
+    if (!qrValue || !ocrValue) continue;
+    comparableFields += 1;
+
+    if (field === 'aadhaarNumber') {
+      if (qrValue.replace(/\D/g, '') === ocrValue.replace(/\D/g, '')) {
+        matchedFields += 1;
+      } else {
+        mismatches.push('Aadhaar number mismatch between QR and printed text');
+      }
+      continue;
+    }
+
+    if (field === 'address') {
+      const qrLower = qrValue.toLowerCase();
+      const ocrLower = ocrValue.toLowerCase();
+      if (qrLower.includes(ocrLower) || ocrLower.includes(qrLower)) {
+        matchedFields += 1;
+      } else {
+        mismatches.push('Address mismatch between QR and printed text');
+      }
+      continue;
+    }
+
+    if (qrValue.toLowerCase() === ocrValue.toLowerCase()) {
+      matchedFields += 1;
+    } else {
+      mismatches.push(`${field} mismatch between QR and printed text`);
+    }
+  }
+
+  return {
+    comparableFields,
+    matchedFields,
+    mismatches,
+    qrDataMatches: comparableFields > 0 && matchedFields === comparableFields
+  };
+};
+
 /**
  * Aadhaar number validation using Verhoeff algorithm
  * The Verhoeff algorithm is used to validate Aadhaar numbers
@@ -206,6 +316,8 @@ const extractName = (text) => {
  */
 const extractDOB = (text) => {
   const dobPatterns = [
+    /\b(\d{2}\/\d{2}\/\d{4})\b/,
+    /\b(\d{2}-\d{2}-\d{4})\b/,
     /(?:DOB|D\.O\.B|Date of Birth|जन्म तिथि|Year of Birth)[:\s]*(\d{2}[\/\-]\d{2}[\/\-]\d{4})/i,
     /(?:DOB|D\.O\.B|Date of Birth)[:\s]*(\d{4})/i, // Year only
     /\b(\d{2}[\/\-]\d{2}[\/\-]\d{4})\b/,
@@ -215,7 +327,7 @@ const extractDOB = (text) => {
   for (const pattern of dobPatterns) {
     const match = text.match(pattern);
     if (match && match[1]) {
-      return match[1];
+      return normalizeDate(match[1]);
     }
   }
   
@@ -247,6 +359,36 @@ const extractGender = (text) => {
   }
   
   return null;
+};
+
+const extractFieldsFromOCR = (text) => {
+  const clean = cleanText(text || '');
+  return {
+    aadhaarNumber: extractAadhaarNumber(clean),
+    name: extractName(text || clean),
+    dateOfBirth: extractDOB(clean),
+    gender: extractGender(clean),
+    address: extractAddress(text || clean)
+  };
+};
+
+const calculateConfidence = ({ qrData, ocrData, comparison }) => {
+  // If both sources exist, confidence is based on field agreement.
+  if (comparison.comparableFields > 0) {
+    return Math.round((comparison.matchedFields / 5) * 100);
+  }
+
+  // Otherwise use extracted field completeness from available source.
+  const source = qrData || ocrData || {};
+  const totalFields = 5;
+  let present = 0;
+  if (source.aadhaarNumber) present += 1;
+  if (source.name) present += 1;
+  if (source.dateOfBirth) present += 1;
+  if (source.gender) present += 1;
+  if (source.address) present += 1;
+
+  return Math.round((present / totalFields) * 100);
 };
 
 /**
@@ -315,48 +457,69 @@ const verifyAadhaar = async (filePath) => {
   };
   
   try {
-    // Step 1: Extract text using OCR
-    const ocrResult = await extractText(filePath);
-    
-    if (!ocrResult.success) {
-      validationMessages.push('OCR extraction failed');
-      result.status = 'rejected';
-      result.verificationDetails.validationMessages = validationMessages;
-      result.processingTime = Date.now() - startTime;
-      return result;
-    }
-    
-    result.extractedData.rawText = ocrResult.text;
-    
-    // Determine image quality from OCR confidence
-    if (ocrResult.confidence >= 80) {
-      result.verificationDetails.imageQuality = 'excellent';
-      confidenceScore += 15;
-    } else if (ocrResult.confidence >= 60) {
-      result.verificationDetails.imageQuality = 'good';
-      confidenceScore += 10;
-    } else if (ocrResult.confidence >= 40) {
-      result.verificationDetails.imageQuality = 'fair';
-      confidenceScore += 5;
+    // Step 1: QR first (most reliable)
+    const qrScanResult = await scanQRCode(filePath);
+    let qrExtracted = null;
+
+    if (qrScanResult.success && qrScanResult.data) {
+      result.verificationDetails.qrCodeFound = true;
+      validationMessages.push('QR code detected in full-image scan');
+
+      let qrParsed = parseAadhaarQRData(qrScanResult.data);
+      if (!qrParsed.success || !qrParsed.data) {
+        qrParsed = { success: true, data: parseAadhaarQRXML(qrScanResult.data) };
+      }
+
+      if (qrParsed.success && qrParsed.data) {
+        qrExtracted = {
+          aadhaarNumber: formatAadhaar(qrParsed.data.aadhaarNumber || qrParsed.data.uid),
+          name: normalizeValue(qrParsed.data.name),
+          dateOfBirth: normalizeDate(qrParsed.data.dateOfBirth || qrParsed.data.dob),
+          gender: normalizeGenderValue(qrParsed.data.gender),
+          address: normalizeValue(qrParsed.data.address)
+        };
+        result.extractedData.qrCodeData = qrParsed.data;
+      }
     } else {
-      result.verificationDetails.imageQuality = 'poor';
-      validationMessages.push('Poor image quality detected');
+      validationMessages.push('QR not found, falling back to OCR extraction');
     }
-    
-    // Step 2: Extract Aadhaar number
-    const aadhaarNumber = extractAadhaarNumber(ocrResult.text);
-    
-    if (aadhaarNumber) {
-      result.extractedData.aadhaarNumber = aadhaarNumber;
+
+    // Step 2: OCR fallback and cross-check
+    const ocrResult = await extractText(filePath);
+    let ocrExtracted = null;
+
+    if (ocrResult.success) {
+      result.extractedData.rawText = ocrResult.text;
+      ocrExtracted = extractFieldsFromOCR(ocrResult.text);
+
+      if (ocrResult.confidence >= 75) {
+        result.verificationDetails.imageQuality = 'excellent';
+      } else if (ocrResult.confidence >= 55) {
+        result.verificationDetails.imageQuality = 'good';
+      } else if (ocrResult.confidence >= 35) {
+        result.verificationDetails.imageQuality = 'fair';
+      } else {
+        result.verificationDetails.imageQuality = 'poor';
+      }
+    } else {
+      validationMessages.push('OCR extraction failed');
+    }
+
+    // Step 3: Merge data (prefer QR where available)
+    result.extractedData.aadhaarNumber = qrExtracted?.aadhaarNumber || ocrExtracted?.aadhaarNumber || null;
+    result.extractedData.name = qrExtracted?.name || ocrExtracted?.name || null;
+    result.extractedData.dateOfBirth = qrExtracted?.dateOfBirth || ocrExtracted?.dateOfBirth || null;
+    result.extractedData.gender = qrExtracted?.gender || ocrExtracted?.gender || null;
+    result.extractedData.address = qrExtracted?.address || ocrExtracted?.address || null;
+
+    const aadhaarNumber = result.extractedData.aadhaarNumber;
+
+    if (aadhaarNumber && /^\d{12}$/.test(aadhaarNumber)) {
       result.verificationDetails.formatValid = true;
-      confidenceScore += 20;
       validationMessages.push('Aadhaar number format valid (12 digits)');
-      
-      // Validate using Verhoeff checksum
       if (validateAadhaarChecksum(aadhaarNumber)) {
         result.verificationDetails.checksumValid = true;
         result.verificationDetails.numberValid = true;
-        confidenceScore += 25;
         validationMessages.push('Aadhaar checksum validation passed');
       } else {
         validationMessages.push('Aadhaar checksum validation failed');
@@ -364,90 +527,41 @@ const verifyAadhaar = async (filePath) => {
     } else {
       validationMessages.push('Could not extract valid Aadhaar number');
     }
-    
-    // Step 3: Extract other details
-    result.extractedData.name = extractName(ocrResult.text);
-    result.extractedData.dateOfBirth = extractDOB(ocrResult.text);
-    result.extractedData.gender = extractGender(ocrResult.text);
-    result.extractedData.address = extractAddress(ocrResult.text);
-    
-    if (result.extractedData.name) {
-      confidenceScore += 10;
-      validationMessages.push('Name extracted successfully');
+
+    if (result.extractedData.name) validationMessages.push('Name extracted');
+    if (result.extractedData.dateOfBirth) validationMessages.push('Date of birth extracted');
+    if (result.extractedData.gender) validationMessages.push('Gender extracted');
+    if (result.extractedData.address) validationMessages.push('Address extracted');
+
+    // Step 4: Cross-validation QR vs OCR
+    const comparison = compareQrAndOcr(qrExtracted, ocrExtracted);
+    result.verificationDetails.qrDataMatches = comparison.qrDataMatches;
+
+    if (comparison.mismatches.length > 0) {
+      result.verificationDetails.tamperingDetected = true;
+      validationMessages.push(...comparison.mismatches);
+    } else if (comparison.comparableFields > 0) {
+      validationMessages.push('QR and printed text fields are consistent');
     }
-    if (result.extractedData.dateOfBirth) {
-      confidenceScore += 10;
-      validationMessages.push('Date of birth extracted');
-    }
-    if (result.extractedData.gender) {
-      confidenceScore += 5;
-      validationMessages.push('Gender extracted');
-    }
-    
-    // Step 4: Scan QR code
-    const qrResult = await scanQRCode(filePath);
-    
-    if (qrResult.success) {
-      result.verificationDetails.qrCodeFound = true;
-      confidenceScore += 15;
-      validationMessages.push('QR code detected in document');
-      
-      // Parse QR data
-      const qrParsed = parseAadhaarQRData(qrResult.data);
-      result.extractedData.qrCodeData = qrParsed.data;
-      
-      // Compare QR data with OCR data
-      if (qrParsed.success && qrParsed.data) {
-        const qrAadhaar = qrParsed.data.aadhaarNumber || qrParsed.data.uid;
-        
-        if (qrAadhaar && result.extractedData.aadhaarNumber) {
-          const qrClean = qrAadhaar.replace(/\D/g, '');
-          const ocrClean = result.extractedData.aadhaarNumber.replace(/\D/g, '');
-          
-          if (qrClean === ocrClean) {
-            result.verificationDetails.qrDataMatches = true;
-            confidenceScore += 20;
-            validationMessages.push('QR code data matches OCR data');
-          } else {
-            validationMessages.push('QR code data does not match OCR - possible tampering');
-            result.verificationDetails.tamperingDetected = true;
-            confidenceScore -= 20;
-          }
-        }
-        
-        // Use QR data to fill missing fields
-        if (!result.extractedData.name && qrParsed.data.name) {
-          result.extractedData.name = qrParsed.data.name;
-        }
-        if (!result.extractedData.dateOfBirth && qrParsed.data.dateOfBirth) {
-          result.extractedData.dateOfBirth = qrParsed.data.dateOfBirth;
-        }
-        if (!result.extractedData.gender && qrParsed.data.gender) {
-          result.extractedData.gender = qrParsed.data.gender;
-        }
-      }
-    } else {
-      validationMessages.push('No QR code found or QR code unreadable');
-    }
-    
-    // Step 5: Determine final status
+
+    // Step 5: Confidence = matched fields / total fields * 100
+    confidenceScore = calculateConfidence({
+      qrData: qrExtracted,
+      ocrData: ocrExtracted,
+      comparison
+    });
+
     result.confidenceScore = Math.min(100, Math.max(0, confidenceScore));
-    
-    if (result.confidenceScore >= 70 && result.verificationDetails.numberValid) {
+
+    if (result.verificationDetails.numberValid &&
+        result.verificationDetails.qrCodeFound &&
+        result.verificationDetails.qrDataMatches) {
       result.status = 'verified';
       result.success = true;
-    } else if (result.confidenceScore >= 40 || result.verificationDetails.formatValid) {
+    } else if (result.verificationDetails.numberValid || result.verificationDetails.formatValid) {
       result.status = 'suspicious';
     } else {
       result.status = 'rejected';
-    }
-    
-    // Check for tampering indicators
-    if (result.verificationDetails.tamperingDetected) {
-      result.status = 'suspicious';
-      if (result.confidenceScore > 50) {
-        result.confidenceScore -= 20;
-      }
     }
     
     result.verificationDetails.validationMessages = validationMessages;

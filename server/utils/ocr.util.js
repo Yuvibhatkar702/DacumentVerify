@@ -8,6 +8,13 @@ const fs = require('fs');
 const sharp = require('sharp');
 const pdfParse = require('pdf-parse');
 
+const tessdataDir = path.join(__dirname, '..');
+const tesseractCacheDir = path.join(__dirname, '..', 'tesseract-cache');
+
+if (!fs.existsSync(tesseractCacheDir)) {
+  fs.mkdirSync(tesseractCacheDir, { recursive: true });
+}
+
 /**
  * Preprocess image for better OCR accuracy
  */
@@ -16,10 +23,11 @@ const preprocessImage = async (imagePath) => {
   
   try {
     await sharp(imagePath)
+      .resize({ width: 1500, withoutEnlargement: false })
       .grayscale() // Convert to grayscale
       .normalize() // Normalize contrast
+      .linear(1.4, -30) // Increase contrast for printed text
       .sharpen() // Sharpen the image
-      .threshold(128) // Apply threshold for binary image
       .png()
       .toFile(outputPath);
     
@@ -48,17 +56,31 @@ const extractTextFromImage = async (imagePath, options = {}) => {
     }
     
     // Perform OCR
-    const result = await Tesseract.recognize(
-      processedPath,
-      lang,
-      {
-        logger: m => {
-          if (m.status === 'recognizing text') {
-            // Progress logging (optional)
-          }
+    const recognizeOptions = {
+      langPath: tessdataDir,
+      cachePath: tesseractCacheDir,
+      gzip: false,
+      logger: m => {
+        if (m.status === 'recognizing text') {
+          // Progress logging (optional)
         }
       }
-    );
+    };
+
+    let result = await Tesseract.recognize(processedPath, lang, {
+      ...recognizeOptions,
+      tessedit_pageseg_mode: Tesseract.PSM.AUTO,
+      preserve_interword_spaces: '1'
+    });
+
+    // If preprocessing hurt OCR (low confidence or empty text), retry on original
+    if ((result.data.confidence || 0) < 40 || !result.data.text?.trim()) {
+      result = await Tesseract.recognize(imagePath, lang, {
+        ...recognizeOptions,
+        tessedit_pageseg_mode: Tesseract.PSM.AUTO,
+        preserve_interword_spaces: '1'
+      });
+    }
     
     // Cleanup processed image if different from original
     if (processedPath !== imagePath && fs.existsSync(processedPath)) {

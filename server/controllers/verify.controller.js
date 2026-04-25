@@ -8,9 +8,82 @@ const fs = require('fs');
 const Document = require('../models/Document.model');
 const { verifyAadhaar } = require('../utils/aadhaarVerification.util');
 const { verifyPAN } = require('../utils/panVerification.util');
+const { validateAadhaarChecksum } = require('../utils/aadhaarVerification.util');
+const { scanAadhaarQRCode } = require('../services/qr-scanner.service');
+const { runAadhaarOCR } = require('../services/ocr.service');
+const { verifyWithOcrFallback } = require('../utils/ocrFallback');
 const { generateFileHash } = require('../utils/hash.util');
 const { deleteFile } = require('../utils/cleanup');
 const { documentsDir } = require('../middleware/upload.middleware');
+
+const sanitizeAadhaar = (value) => (value ? value.replace(/\D/g, '') : null);
+
+const hasReadableQrData = (qrData) => {
+  if (!qrData) return false;
+  return Boolean(qrData.aadhaarNumber || qrData.name || qrData.dob || qrData.gender || qrData.address);
+};
+
+const mergeAadhaarData = (qrData, ocrData) => ({
+  aadhaarNumber: qrData?.aadhaarNumber || ocrData?.aadhaarNumber || null,
+  name: qrData?.name || ocrData?.name || null,
+  dob: qrData?.dob || ocrData?.dob || null,
+  gender: qrData?.gender || ocrData?.gender || null,
+  address: qrData?.address || ocrData?.address || null
+});
+
+const compareAadhaarFields = (qrData, ocrData) => {
+  const fields = ['aadhaarNumber', 'name', 'dob', 'gender', 'address'];
+  let matched = 0;
+  let comparable = 0;
+  const mismatches = [];
+
+  for (const field of fields) {
+    const qrVal = qrData?.[field];
+    const ocrVal = ocrData?.[field];
+
+    if (!qrVal || !ocrVal) {
+      continue;
+    }
+
+    comparable += 1;
+
+    let isMatch = false;
+
+    if (field === 'aadhaarNumber') {
+      isMatch = sanitizeAadhaar(qrVal) === sanitizeAadhaar(ocrVal);
+    } else if (field === 'address') {
+      const q = String(qrVal).toLowerCase();
+      const o = String(ocrVal).toLowerCase();
+      isMatch = q.includes(o) || o.includes(q);
+    } else {
+      isMatch = String(qrVal).toLowerCase() === String(ocrVal).toLowerCase();
+    }
+
+    if (isMatch) {
+      matched += 1;
+    } else {
+      mismatches.push(field);
+    }
+  }
+
+  return {
+    matched,
+    comparable,
+    mismatches,
+    qrDataMatches: comparable > 0 && matched === comparable,
+    matchPercent: Math.round((matched / fields.length) * 100)
+  };
+};
+
+const calculateDocumentConfidence = ({ comparison, extractedData }) => {
+  if (comparison.comparable > 0) {
+    return comparison.matchPercent;
+  }
+
+  const fields = ['aadhaarNumber', 'name', 'dob', 'gender', 'address'];
+  const present = fields.filter((field) => Boolean(extractedData?.[field])).length;
+  return Math.round((present / fields.length) * 100);
+};
 
 /**
  * @desc    Verify Aadhaar card
@@ -327,9 +400,161 @@ const deleteVerification = async (req, res) => {
   }
 };
 
+/**
+ * @desc    Unified document verification endpoint
+ * @route   POST /api/verify/document
+ * @access  Private
+ */
+const verifyDocument = async (req, res) => {
+  let tempFilePath = null;
+
+  try {
+    const uploadedFile = req.file || (req.files && req.files[0]);
+    const documentType = (req.body.documentType || 'aadhaar').toLowerCase();
+
+    if (!uploadedFile) {
+      return res.status(400).json({
+        success: false,
+        message: 'Please upload a document file'
+      });
+    }
+
+    if (documentType !== 'aadhaar') {
+      return res.status(400).json({
+        success: false,
+        message: 'This endpoint currently supports aadhaar only'
+      });
+    }
+
+    tempFilePath = uploadedFile.path;
+
+    const fileHash = await generateFileHash(tempFilePath);
+    const newFileName = `${req.user.id}_${documentType}_${Date.now()}${path.extname(uploadedFile.originalname)}`;
+    const permanentPath = path.join(documentsDir, newFileName);
+
+    fs.renameSync(tempFilePath, permanentPath);
+    tempFilePath = permanentPath;
+
+    const qrResult = await scanAadhaarQRCode(permanentPath);
+    const ocrResult = await runAadhaarOCR(permanentPath);
+
+    const extractedData = mergeAadhaarData(qrResult.extractedData, ocrResult.extractedData);
+
+    const mergedAadhaar = sanitizeAadhaar(extractedData.aadhaarNumber);
+
+    const formatValid = Boolean(mergedAadhaar && /^\d{12}$/.test(mergedAadhaar) && !mergedAadhaar.startsWith('0') && !mergedAadhaar.startsWith('1'));
+    const numberValid = formatValid && validateAadhaarChecksum(mergedAadhaar);
+    const qrFound = Boolean(qrResult.qrFound || qrResult.qrDetected);
+    const comparison = compareAadhaarFields(qrResult.extractedData, ocrResult.extractedData);
+    const qrDataMatches = comparison.qrDataMatches;
+
+    const qrReadable = hasReadableQrData(qrResult.extractedData);
+    const shouldUseFallback = !qrFound || !qrReadable;
+    const fallback = shouldUseFallback
+      ? verifyWithOcrFallback(ocrResult.extractedData || extractedData, ocrResult.rawText || '')
+      : null;
+
+    const verificationChecks = fallback
+      ? {
+          numberValid: fallback.checks.numberValid,
+          formatValid: fallback.checks.formatValid,
+          qrFound: false,
+          qrDataMatches: false,
+          checksumValid: fallback.checks.checksumValid,
+          blacklisted: fallback.checks.blacklisted,
+          nameMismatch: fallback.checks.nameMismatch,
+          ocrFallbackUsed: fallback.checks.ocrFallbackUsed,
+          mismatchedFields: comparison.mismatches
+        }
+      : {
+          numberValid,
+          formatValid,
+          qrFound,
+          qrDataMatches,
+          checksumValid: numberValid,
+          blacklisted: false,
+          nameMismatch: !extractedData?.name,
+          ocrFallbackUsed: false,
+          mismatchedFields: comparison.mismatches
+        };
+
+    const confidenceScore = fallback
+      ? fallback.confidenceScore
+      : calculateDocumentConfidence({
+          comparison,
+          extractedData
+        });
+
+    const status = fallback
+      ? fallback.status
+      : (numberValid && qrFound && qrDataMatches
+        ? 'verified'
+        : ((numberValid || formatValid) ? 'suspicious' : 'rejected'));
+
+    const verificationMessage = fallback ? fallback.message : 'QR and OCR cross-validation completed';
+
+    await Document.create({
+      userId: req.user.id,
+      documentType,
+      originalFileName: uploadedFile.originalname,
+      filePath: permanentPath,
+      fileHash,
+      extractedData: {
+        aadhaarNumber: extractedData.aadhaarNumber,
+        name: extractedData.name,
+        dateOfBirth: extractedData.dob,
+        gender: extractedData.gender,
+        address: extractedData.address,
+        rawText: ocrResult.rawText || null,
+        qrRaw: qrResult.rawPayload || null
+      },
+      verificationDetails: {
+        ...verificationChecks,
+        qrMessage: qrResult.message,
+        ocrMessage: ocrResult.message,
+        validationMessages: [
+          fallback ? verificationMessage : qrResult.message,
+          ocrResult.message,
+          ...(comparison.mismatches.length ? [`Mismatched fields: ${comparison.mismatches.join(', ')}`] : [])
+        ].filter(Boolean)
+      },
+      confidenceScore,
+      status,
+      processingTime: 0,
+      ipAddress: req.ip,
+      userAgent: req.get('User-Agent')
+    });
+
+    return res.status(200).json({
+      success: true,
+      qrDetected: qrFound,
+      qrFound,
+      qrExtractedData: qrResult.extractedData || null,
+      extractedData,
+      confidenceScore,
+      verificationChecks,
+      verificationMessage,
+      status
+    });
+  } catch (error) {
+    console.error('Unified Verification Error:', error);
+
+    if (tempFilePath) {
+      deleteFile(tempFilePath);
+    }
+
+    return res.status(500).json({
+      success: false,
+      message: 'Verification failed. Please try again.',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 module.exports = {
   verifyAadhaarCard,
   verifyPANCard,
+  verifyDocument,
   getVerificationById,
   deleteVerification
 };
