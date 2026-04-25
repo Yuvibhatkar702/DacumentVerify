@@ -19,6 +19,10 @@
    - `REACT_APP_API_URL` (set to your Render API URL, e.g. `https://docverify-api.onrender.com/api`)
 5. Deploy.
 
+Note:
+- The blueprint is configured for free plans where supported.
+- If Render still requests card details, it is an account-level policy and cannot be bypassed from project config.
+
 ## Option B: Vercel Frontend + Render APIs (Recommended)
 
 ### 1) Deploy Python service on Render

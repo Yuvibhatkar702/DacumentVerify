@@ -3,7 +3,7 @@ services:
     name: docverify-api
     env: node
     rootDir: server
-    plan: starter
+    plan: free
     buildCommand: npm install
     startCommand: npm start
     healthCheckPath: /api/health
@@ -34,14 +34,13 @@ services:
     env: docker
     rootDir: python_service
     dockerfilePath: ./Dockerfile
-    plan: starter
+    plan: free
     healthCheckPath: /health
 
   - type: web
     name: docverify-client
     env: static
     rootDir: client
-    plan: starter
     buildCommand: npm install && npm run build
     staticPublishPath: build
     envVars:
