@@ -5,6 +5,8 @@
 
 import api from './api';
 
+const VERIFICATION_TIMEOUT = Number(process.env.REACT_APP_VERIFICATION_TIMEOUT || 180000);
+
 /**
  * Verify Aadhaar card
  * @param {File} file - The document file to verify
@@ -18,6 +20,7 @@ export const verifyAadhaar = async (file, onProgress) => {
     headers: {
       'Content-Type': 'multipart/form-data',
     },
+    timeout: VERIFICATION_TIMEOUT,
     onUploadProgress: (progressEvent) => {
       if (onProgress) {
         const percentCompleted = Math.round(
@@ -44,6 +47,7 @@ export const verifyPAN = async (file, onProgress) => {
     headers: {
       'Content-Type': 'multipart/form-data',
     },
+    timeout: VERIFICATION_TIMEOUT,
     onUploadProgress: (progressEvent) => {
       if (onProgress) {
         const percentCompleted = Math.round(

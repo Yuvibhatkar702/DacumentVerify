@@ -6,6 +6,7 @@
 import axios from 'axios';
 
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:5000/api';
+const API_TIMEOUT = Number(process.env.REACT_APP_API_TIMEOUT || 120000);
 
 // Create axios instance
 const api = axios.create({
@@ -13,7 +14,7 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
-  timeout: 30000, // 30 seconds timeout
+  timeout: API_TIMEOUT,
 });
 
 // Request interceptor
