@@ -5,6 +5,8 @@
 
 const path = require('path');
 const fs = require('fs');
+const axios = require('axios');
+const FormData = require('form-data');
 const Document = require('../models/Document.model');
 const { verifyAadhaar } = require('../utils/aadhaarVerification.util');
 const { verifyPAN } = require('../utils/panVerification.util');
@@ -15,6 +17,9 @@ const { verifyWithOcrFallback } = require('../utils/ocrFallback');
 const { generateFileHash } = require('../utils/hash.util');
 const { deleteFile } = require('../utils/cleanup');
 const { documentsDir } = require('../middleware/upload.middleware');
+
+const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://localhost:8000';
+const PYTHON_SERVICE_TIMEOUT_MS = Number(process.env.PYTHON_SERVICE_TIMEOUT_MS || 12000);
 
 const sanitizeAadhaar = (value) => (value ? value.replace(/\D/g, '') : null);
 
@@ -83,6 +88,68 @@ const calculateDocumentConfidence = ({ comparison, extractedData }) => {
   const fields = ['aadhaarNumber', 'name', 'dob', 'gender', 'address'];
   const present = fields.filter((field) => Boolean(extractedData?.[field])).length;
   return Math.round((present / fields.length) * 100);
+};
+
+const callPythonService = async (endpoint, filePath) => {
+  const formData = new FormData();
+  formData.append('file', fs.createReadStream(filePath), path.basename(filePath));
+
+  const response = await axios.post(`${PYTHON_SERVICE_URL}${endpoint}`, formData, {
+    headers: formData.getHeaders(),
+    timeout: PYTHON_SERVICE_TIMEOUT_MS,
+    maxContentLength: Infinity,
+    maxBodyLength: Infinity
+  });
+
+  if (!response?.data?.success) {
+    throw new Error(response?.data?.message || `Python service returned an invalid response for ${endpoint}`);
+  }
+
+  return response.data.data || {};
+};
+
+const runAadhaarQrViaPython = async (filePath) => {
+  const data = await callPythonService('/process-qr', filePath);
+
+  return {
+    success: Boolean(data.qrFound),
+    qrFound: Boolean(data.qrFound),
+    qrDetected: Boolean(data.qrFound),
+    extractedData: data.extractedData || null,
+    confidenceScore: data.confidenceScore || 0,
+    rawPayload: data.rawPayload || null,
+    message: data.message || (data.qrFound ? 'Python QR extraction completed' : 'No readable Aadhaar QR data found')
+  };
+};
+
+const runAadhaarOcrViaPython = async (filePath) => {
+  const data = await callPythonService('/process-ocr', filePath);
+
+  return {
+    success: true,
+    extractedData: data.extractedData || null,
+    rawText: data.text || '',
+    confidenceScore: data.confidenceScore || 0,
+    message: data.message || 'Python OCR extraction completed'
+  };
+};
+
+const runWithFallback = async (label, pythonRunner, fallbackRunner) => {
+  try {
+    return await pythonRunner();
+  } catch (error) {
+    console.warn(`Python ${label} failed, falling back to Node ${label}:`, error.message);
+    return fallbackRunner();
+  }
+};
+
+const runAadhaarPipelines = async (filePath) => {
+  const [qrResult, ocrResult] = await Promise.all([
+    runWithFallback('QR', () => runAadhaarQrViaPython(filePath), () => scanAadhaarQRCode(filePath)),
+    runWithFallback('OCR', () => runAadhaarOcrViaPython(filePath), () => runAadhaarOCR(filePath))
+  ]);
+
+  return { qrResult, ocrResult };
 };
 
 /**
@@ -435,8 +502,7 @@ const verifyDocument = async (req, res) => {
     fs.renameSync(tempFilePath, permanentPath);
     tempFilePath = permanentPath;
 
-    const qrResult = await scanAadhaarQRCode(permanentPath);
-    const ocrResult = await runAadhaarOCR(permanentPath);
+    const { qrResult, ocrResult } = await runAadhaarPipelines(permanentPath);
 
     const extractedData = mergeAadhaarData(qrResult.extractedData, ocrResult.extractedData);
 

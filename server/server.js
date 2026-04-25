@@ -13,7 +13,9 @@ const cron = require('node-cron');
 // Import routes
 const authRoutes = require('./routes/auth.routes');
 const verifyRoutes = require('./routes/verify.routes');
+const panRoutes = require('./routes/panRoutes');
 const historyRoutes = require('./routes/history.routes');
+const aadhaarSandboxRoutes = require('./routes/aadhaarSandbox.routes');
 
 // Import utilities
 const { cleanupOldDocuments } = require('./utils/cleanup');
@@ -72,11 +74,17 @@ app.get('/api/health', (req, res) => {
 // Authentication routes
 app.use('/api/auth', authRoutes);
 
+// Dedicated PAN verification route
+app.use('/api/verify', panRoutes);
+
 // Document verification routes
 app.use('/api/verify', verifyRoutes);
 
 // Verification history routes
 app.use('/api/history', historyRoutes);
+
+// Aadhaar sandbox e-KYC routes
+app.use('/api/aadhaar', aadhaarSandboxRoutes);
 
 // ======================
 // ERROR HANDLING

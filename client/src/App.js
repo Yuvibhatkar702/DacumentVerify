@@ -20,6 +20,7 @@ import LoginPage from './pages/LoginPage';
 import SignupPage from './pages/SignupPage';
 import Dashboard from './pages/Dashboard';
 import AadhaarVerification from './pages/AadhaarVerification';
+import AadhaarEKycPage from './pages/AadhaarEKycPage';
 import PANVerification from './pages/PANVerification';
 import HistoryPage from './pages/HistoryPage';
 import NotFound from './pages/NotFound';
@@ -79,6 +80,17 @@ function App() {
                 <ProtectedRoute>
                   <Layout>
                     <AadhaarVerification />
+                  </Layout>
+                </ProtectedRoute>
+              }
+            />
+
+            <Route
+              path="/verify/aadhaar-ekyc"
+              element={
+                <ProtectedRoute>
+                  <Layout>
+                    <AadhaarEKycPage />
                   </Layout>
                 </ProtectedRoute>
               }

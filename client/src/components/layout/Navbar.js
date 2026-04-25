@@ -11,6 +11,7 @@ import {
   FiFileText, 
   FiCreditCard, 
   FiClock, 
+  FiSmartphone,
   FiLogOut, 
   FiMenu, 
   FiX,
@@ -28,6 +29,7 @@ const Navbar = () => {
   const navLinks = [
     { path: '/dashboard', label: 'Dashboard', icon: FiHome },
     { path: '/verify/aadhaar', label: 'Aadhaar', icon: FiFileText },
+    { path: '/verify/aadhaar-ekyc', label: 'Aadhaar e-KYC', icon: FiSmartphone },
     { path: '/verify/pan', label: 'PAN Card', icon: FiCreditCard },
     { path: '/history', label: 'History', icon: FiClock },
   ];
