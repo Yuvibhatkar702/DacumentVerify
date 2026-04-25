@@ -7,6 +7,19 @@
 - Python OCR/QR Service: Render Web Service (Docker)
 - Database: MongoDB Atlas
 
+## Client + Server Only (No Python Service)
+
+If you do not want to deploy the Python microservice, deploy only:
+
+- `docverify-api` (Node)
+- `docverify-client` (static)
+
+The Render blueprint in [render.yaml](render.yaml) is already updated for this mode and sets:
+
+- `USE_PYTHON_SERVICE=false`
+
+This makes the Node backend use existing JavaScript OCR/QR fallback methods directly.
+
 ## Option A: One-Click Render Blueprint (All 3 Services)
 
 1. Push this repo to GitHub.

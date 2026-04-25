@@ -20,6 +20,7 @@ const { documentsDir } = require('../middleware/upload.middleware');
 
 const PYTHON_SERVICE_URL = process.env.PYTHON_SERVICE_URL || 'http://localhost:8000';
 const PYTHON_SERVICE_TIMEOUT_MS = Number(process.env.PYTHON_SERVICE_TIMEOUT_MS || 12000);
+const USE_PYTHON_SERVICE = process.env.USE_PYTHON_SERVICE !== 'false';
 
 const sanitizeAadhaar = (value) => (value ? value.replace(/\D/g, '') : null);
 
@@ -135,6 +136,10 @@ const runAadhaarOcrViaPython = async (filePath) => {
 };
 
 const runWithFallback = async (label, pythonRunner, fallbackRunner) => {
+  if (!USE_PYTHON_SERVICE) {
+    return fallbackRunner();
+  }
+
   try {
     return await pythonRunner();
   } catch (error) {

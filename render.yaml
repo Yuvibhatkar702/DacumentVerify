@@ -12,8 +12,8 @@ services:
         value: production
       - key: PORT
         value: 5000
-      - key: PYTHON_SERVICE_URL
-        value: http://docverify-python:8000
+      - key: USE_PYTHON_SERVICE
+        value: false
       - key: MAX_FILE_SIZE
         value: 10485760
       - key: UPLOAD_PATH
@@ -28,14 +28,6 @@ services:
         sync: false
       - key: JWT_EXPIRE
         value: 7d
-
-  - type: web
-    name: docverify-python
-    env: docker
-    rootDir: python_service
-    dockerfilePath: ./Dockerfile
-    plan: free
-    healthCheckPath: /health
 
   - type: web
     name: docverify-client
